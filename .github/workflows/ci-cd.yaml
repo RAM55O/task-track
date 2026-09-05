@@ -20,7 +20,7 @@ jobs:
 
       # 1. Trivy File System Scan (Replaces Sonar for Vulnerability Scanning)
       - name: Trivy FS Scan (Source Code & Secrets)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -29,7 +29,7 @@ jobs:
 
       # 2. Trivy Helm Config Scan (Scans Kubernetes Manifests)
       - name: Trivy Config Scan (Helm Chart)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'config'
           scan-ref: 'tasktrack/'
@@ -65,7 +65,7 @@ jobs:
 
       # 6. Image Vulnerability Scan
       - name: Trivy Image Scan
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'ghcr.io/${{ github.repository_owner }}/task-track-app:${{ steps.vars.outputs.SHA_TAG }}'
           severity: 'HIGH,CRITICAL'
