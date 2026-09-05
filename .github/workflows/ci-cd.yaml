@@ -1,0 +1,90 @@
+name: TaskTrack CI/CD Pipeline (Zero Cost, No Accounts)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-scan-deploy:
+    name: Build, Scan & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # Needed to commit Helm tag updates
+      packages: write       # Needed to push Docker images to GitHub Packages (GHCR)
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # 1. Trivy File System Scan (Replaces Sonar for Vulnerability Scanning)
+      - name: Trivy FS Scan (Source Code & Secrets)
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      # 2. Trivy Helm Config Scan (Scans Kubernetes Manifests)
+      - name: Trivy Config Scan (Helm Chart)
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: 'config'
+          scan-ref: 'tasktrack/'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      # 3. Create Short SHA for Image Tag
+      - name: Set Image Tag
+        id: vars
+        run: echo "SHA_TAG=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      # 4. Login to GitHub Container Registry (Uses built-in GitHub Token - NO SECRETS NEEDED!)
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 5. Build and Push Docker Image to GHCR
+      - name: Build and Push Docker Image
+        run: |
+          # Convert repository owner to lowercase (Docker requirement)
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/$REPO_OWNER/task-track-app:${{ steps.vars.outputs.SHA_TAG }}"
+          
+          docker build -t $IMAGE_NAME .
+          
+          # Only push the image if we are merging/pushing to the main branch
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            docker push $IMAGE_NAME
+          fi
+
+      # 6. Image Vulnerability Scan
+      - name: Trivy Image Scan
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: 'ghcr.io/${{ github.repository_owner }}/task-track-app:${{ steps.vars.outputs.SHA_TAG }}'
+          severity: 'HIGH,CRITICAL'
+          format: 'table'
+          exit-code: '0'
+
+      # 7. GitOps Update for Argo CD
+      - name: Update Helm Image Tag in Git
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Replace tag in values.yaml
+          sed -i 's/tag: .*/tag: "'${{ steps.vars.outputs.SHA_TAG }}'"/' tasktrack/values.yaml
+          
+          # Replace the image repository to point to GitHub Container Registry instead of Docker Hub
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          sed -i 's|repository: .*|repository: ghcr.io/'$REPO_OWNER'/task-track-app|' tasktrack/values.yaml
+          
+          git add tasktrack/values.yaml
+          git diff --quiet && git diff --staged --quiet || (git commit -m "ci: bump image tag and repo to GHCR [skip ci]" && git push origin main)
