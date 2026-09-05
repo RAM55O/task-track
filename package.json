@@ -1,0 +1,11 @@
+{
+  "name": "task-tracker-mern",
+  "version": "1.0.0",
+  "description": "Full Stack MERN Task Tracker Application with React, Express, MongoDB, and Node.js",
+  "scripts": {
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "dev": "node dev.js",
+    "start": "node dev.js"
+  }
+}
